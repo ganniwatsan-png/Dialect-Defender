@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dialect Defender — Retro ESL</title>
+  <style>
+    :root{
+      --bg:#0b0e1a;
+      --fg:#e6e6e6;
+      --accent:#5ef5ff;
+      --accent2:#ff4df3;
+      --good:#6dff7a;
+      --bad:#ff5e5e;
+      --panel:#121633;
+      --pixel-shadow: drop-shadow(0 0 2px rgba(255,255,255,.3));
+    }
+    html,body{height:100%;}
+    body{
+      margin:0; overflow:hidden; background:var(--bg); color:var(--fg);
+      font-family: "Press Start 2P", system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif;
+      image-rendering: pixelated; 
+      -webkit-font-smoothing: none; /* enhances the pixel vibe */
+    }
+
+    /* Fallback pixel font via CSS only */
+    @font-face{
+      font-family:"Press Start 2P";
+      font-style: normal;
+      font-weight: 400;
+      src: local("Courier New");
+    }
+
+    #gameCanvas{position:fixed; inset:0; width:100vw; height:100vh; display:block; background: radial-gradient(1000px 700px at 50% 40%, rgba(94,245,255,.06), transparent), #000010;}
+
+    .overlay{position:fixed; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none;}
+    .ui-panel{position:fixed; left:50%; transform:translateX(-50%); bottom:18px; background:linear-gradient(180deg, rgba(18,22,51,.92), rgba(6,9,26,.92)); border:2px solid #2a2f66; box-shadow:0 0 0 4px rgba(42,47,102,.25), 0 12px 40px rgba(0,0,0,.6); padding:12px 16px; border-radius:16px; pointer-events:auto;}
+    .btn{font-family:inherit; font-size:14px; letter-spacing:.5px; padding:12px 18px; margin:6px; border:2px solid var(--accent); background:transparent; color:var(--fg); text-transform:uppercase; cursor:pointer; border-radius:14px; box-shadow:0 0 0 3px rgba(94,245,255,.15); transition:transform .08s ease, box-shadow .2s ease;}
+    .btn:hover{transform:translateY(-2px);}
+    .btn.primary{background:linear-gradient(180deg, rgba(94,245,255,.25), rgba(94,245,255,.05));}
+
+    #startScreen, #endScreen, #reviewScreen{position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background: radial-gradient(800px 600px at 50% 50%, rgba(255,77,243,.08), rgba(0,0,0,.75));}
+    .card{width:min(860px, 92vw); background:linear-gradient(180deg, rgba(18,22,51,.92), rgba(6,9,26,.92)); border:2px solid #2a2f66; border-radius:18px; padding:22px; box-shadow:0 16px 80px rgba(0,0,0,.6);}
+    .title{font-size:28px; margin:0 0 14px 0; color:var(--accent); text-shadow:0 0 8px rgba(94,245,255,.45);}    
+    .subtitle{opacity:.9; line-height:1.4;}
+
+    .big-count{font-size:128px; color:var(--accent2); text-shadow:0 0 20px rgba(255,77,243,.6);}
+
+    #hud{position:fixed; top:10px; left:50%; transform:translateX(-50%); width:min(1100px, 94vw); display:flex; flex-direction:column; gap:10px; align-items:center; pointer-events:none;}
+    #sentence{background:rgba(18,22,51,.85); border:2px solid #2a2f66; border-radius:14px; padding:10px 12px; font-size:16px; text-align:center; box-shadow:0 8px 30px rgba(0,0,0,.5);}
+    #timerBar{height:12px; width:100%; background:#1b1f44; border:2px solid #2a2f66; border-radius:12px; overflow:hidden;}
+    #timerFill{height:100%; width:100%; background:linear-gradient(90deg, var(--good), #ffee58, var(--bad));}
+    #score{font-size:14px; opacity:.9;}
+
+    /* Review table */
+    table{width:100%; border-collapse:collapse; font-size:14px;}
+    th, td{border-bottom:1px dashed #2a2f66; padding:10px; vertical-align:top;}
+    th{text-align:left; color:var(--accent)}
+    .good{color:var(--good)}
+    .bad{color:var(--bad)}
+
+    /* Mobile hint */
+    #mobileHint{position:fixed; right:12px; bottom:12px; background:rgba(6,9,26,.75); border:1px solid #2a2f66; border-radius:10px; padding:6px 10px; font-size:12px; opacity:.9;}
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas" width="1280" height="720" aria-label="Retro starfield canvas game"></canvas>
+
+  <div id="hud" aria-live="polite" style="display:none;">
+    <div id="sentence">Sentence appears here.</div>
+    <div id="timerBar" aria-hidden="true"><div id="timerFill"></div></div>
+    <div id="score">Score: <span id="scoreVal">0</span></div>
+  </div>
+
+  <div id="startScreen" role="dialog" aria-modal="true">
+    <div class="card">
+      <h1 class="title">Dialect Defender</h1>
+      <p class="subtitle">Shoot the planet that matches the English variety you hear in the sentence. 10 seconds per round. Hit the right one for star confetti and a quick explanation. Miss it and—boom—the correct region pops up.</p>
+      <p class="subtitle" style="margin-top:10px">Controls: <strong>Move mouse</strong> to aim • <strong>Click</strong> to fire • <strong>Space</strong> to start or shoot • <strong>R</strong> to retry after a game.</p>
+      <div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:8px;">
+        <button class="btn primary" id="startBtn">Start</button>
+        <button class="btn" id="howBtn">How to Play</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="countdown" class="overlay" style="display:none"><div class="big-count" id="countNum">3</div></div>
+
+  <div id="endScreen" role="dialog" aria-modal="true" style="display:none;">
+    <div class="card">
+      <h2 class="title" id="finalTitle">Mission Complete</h2>
+      <p class="subtitle" id="finalStats">You scored 0 / 0.</p>
+      <div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:8px;">
+        <button class="btn primary" id="retryBtn">Retry</button>
+        <button class="btn" id="reviewBtn">Review Answers</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="reviewScreen" role="dialog" aria-modal="true" style="display:none;">
+    <div class="card" style="max-height:80vh; overflow:auto;">
+      <h2 class="title">Answer Review</h2>
+      <table id="reviewTable" aria-label="Review table of answers">
+        <thead>
+          <tr><th style="width:36%">Sentence</th><th style="width:14%">Correct Region</th><th style="width:14%">Your Pick</th><th>Why</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn" id="closeReview">Close</button>
+        <button class="btn" id="retryFromReview">Retry</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="mobileHint">Tip: On touch screens, tap to shoot. Rotate to landscape for more space.</div>
+
+  <script>
+    (function(){
+      // ======= Game Data =======
+      const REGIONS = [
+        "UK", "Ireland", "USA (South)", "USA", "Canada", "Australia", "New Zealand", "India", "South Africa", "Singapore", "Scotland"
+      ];
+
+      /** Each question: { sentence, correct, options[4], why } */
+      const QUESTIONS = [
+        { sentence: "Pop it in the boot.", correct: "UK", options:["USA","UK","Australia","Canada"], why: "In the UK, a car's trunk is the 'boot'." },
+        { sentence: "Meet me at half three.", correct: "Ireland", options:["Ireland","USA","Singapore","India"], why: "Irish English uses 'half three' to mean 3:30." },
+        { sentence: "See you this arvo.", correct: "Australia", options:["UK","Australia","Canada","USA"], why: "'Arvo' is Aussie for 'afternoon'." },
+        { sentence: "I'm after getting a coffee.", correct: "Ireland", options:["Ireland","India","UK","USA"], why: "'After doing' for recent past is a Hiberno‑English pattern." },
+        { sentence: "Y'all coming to the cookout?", correct: "USA (South)", options:["USA (South)","Canada","UK","Australia"], why: "Second‑person plural 'y'all' is a hallmark of Southern American English." },
+        { sentence: "I'll pick you up at the robot.", correct: "South Africa", options:["South Africa","USA","New Zealand","UK"], why: "In South Africa, a 'robot' is a traffic light." },
+        { sentence: "I'm going to prepone the meeting.", correct: "India", options:["India","Singapore","UK","USA"], why: "Indian English uses 'prepone' to mean bring forward (the opposite of postpone)." },
+        { sentence: "It's a wee bit chilly.", correct: "Scotland", options:["Scotland","USA","Ireland","Australia"], why: "'Wee' for 'small/a little' strongly signals Scottish English." },
+        { sentence: "Can you pass me the rubber?", correct: "UK", options:["USA","UK","India","Canada"], why: "In the UK classroom, 'rubber' means an eraser." },
+        { sentence: "Let's grab a double‑double at Timmies.", correct: "Canada", options:["Canada","USA","UK","Ireland"], why: "A 'double‑double' coffee and 'Timmies' (Tim Hortons) are Canadian staples." },
+        { sentence: "Sweet as!", correct: "New Zealand", options:["Australia","New Zealand","UK","South Africa"], why: "Elliptical compliments like 'sweet as' are typical in NZ English." },
+        { sentence: "Okay lah, later we go.", correct: "Singapore", options:["Singapore","India","USA","Australia"], why: "The discourse particle 'lah' is iconic in Singapore English." },
+        { sentence: "Chuck it in the bin.", correct: "UK", options:["Australia","USA","UK","Canada"], why: "'Bin' (for 'trash can') is common in British English." },
+        { sentence: "I'm knackered after that.", correct: "UK", options:["Ireland","UK","USA","New Zealand"], why: "'Knackered' meaning 'very tired' is chiefly British/Irish; here keyed to UK." }
+      ];
+
+      // ======= Canvas & Rendering =======
+      const canvas = document.getElementById('gameCanvas');
+      const ctx = canvas.getContext('2d');
+      let W = canvas.width, H = canvas.height;
+
+      function resize(){
+        const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+        const rectW = window.innerWidth, rectH = window.innerHeight;
+        canvas.width = rectW * dpr; canvas.height = rectH * dpr;
+        canvas.style.width = rectW + 'px'; canvas.style.height = rectH + 'px';
+        ctx.setTransform(dpr,0,0,dpr,0,0);
+        W = rectW; H = rectH;
+      }
+      window.addEventListener('resize', resize);
+      resize();
+
+      // Starfield
+      const stars = Array.from({length: 220}, ()=>({
+        x: Math.random()*W,
+        y: Math.random()*H,
+        z: Math.random()*2 + .4,
+        tw: Math.random()*0.6 + 0.25
+      }));
+
+      function drawStars(dt){
+        ctx.save();
+        for(const s of stars){
+          s.y += s.z * 10 * dt; // slow drift downward
+          if(s.y>H) { s.y = 0; s.x = Math.random()*W; }
+          const size = s.z;
+          ctx.globalAlpha = 0.7 + 0.3*Math.sin(perfNow * s.tw);
+          ctx.fillStyle = '#cbe8ff';
+          ctx.fillRect(s.x, s.y, size, size);
+        }
+        ctx.restore();
+      }
+
+      // ======= Entities =======
+      const ship = { x: W/2, y: H-80, r: 16 };
+      let aim = { x: W/2, y: H/2 };
+      let bullets = []; // {x,y,vx,vy,life}
+
+      function drawShip(){
+        ctx.save();
+        ctx.translate(ship.x, ship.y);
+        ctx.fillStyle = '#8cf0ff';
+        ctx.strokeStyle = '#2de3ff';
+        ctx.lineWidth = 2;
+        // Simple pixel‑tri ship
+        ctx.beginPath();
+        ctx.moveTo(0, -ship.r);
+        ctx.lineTo(ship.r*0.8, ship.r);
+        ctx.lineTo(-ship.r*0.8, ship.r);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      function drawCrosshair(){
+        ctx.save();
+        ctx.strokeStyle = '#ff6cf2';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(aim.x, aim.y, 14, 0, Math.PI*2);
+        ctx.moveTo(aim.x-20, aim.y); ctx.lineTo(aim.x-6, aim.y);
+        ctx.moveTo(aim.x+20, aim.y); ctx.lineTo(aim.x+6, aim.y);
+        ctx.moveTo(aim.x, aim.y-20); ctx.lineTo(aim.x, aim.y-6);
+        ctx.moveTo(aim.x, aim.y+20); ctx.lineTo(aim.x, aim.y+6);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      function fire(){
+        const dx = aim.x - ship.x; const dy = aim.y - ship.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const speed = 680; // px/s
+        bullets.push({ x: ship.x, y: ship.y-12, vx: speed*dx/len, vy: speed*dy/len, life: 1.6 });
+      }
+
+      function updateBullets(dt){
+        for(const b of bullets){ b.x += b.vx*dt; b.y += b.vy*dt; b.life -= dt; }
+        bullets = bullets.filter(b=> b.life>0 && b.x>-40 && b.x<W+40 && b.y>-40 && b.y<H+40);
+        ctx.save();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        for(const b of bullets){
+          ctx.beginPath();
+          ctx.moveTo(b.x, b.y);
+          ctx.lineTo(b.x - b.vx*0.03, b.y - b.vy*0.03); // streak
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      // Planets (answers)
+      let planets = []; // {x,y,r,label,vx,vy,region}
+
+      function spawnPlanets(labels){
+        planets = [];
+        const margin = 80;
+        const spots = [
+          {x: margin + 140, y: H*0.42},
+          {x: W - margin - 140, y: H*0.42},
+          {x: margin + 220, y: H*0.68},
+          {x: W - margin - 220, y: H*0.68},
+        ];
+        const varied = shuffle(spots.slice());
+        for(let i=0;i<labels.length;i++){
+          const p = varied[i];
+          const r = 46 + Math.random()*14;
+          planets.push({ x:p.x, y:p.y, r, label: labels[i], vx:(Math.random()*2-1)*18, vy:(Math.random()*2-1)*18 });
+        }
+      }
+
+      function drawPlanets(dt){
+        for(const p of planets){
+          // gentle drift & bounce
+          p.x += p.vx*dt; p.y += p.vy*dt;
+          if(p.x < p.r+10 || p.x > W - p.r - 10) p.vx *= -1;
+          if(p.y < H*0.28 || p.y > H - p.r - 20) p.vy *= -1;
+          // body
+          const grad = ctx.createRadialGradient(p.x-p.r*0.4, p.y-p.r*0.4, p.r*0.2, p.x, p.y, p.r);
+          grad.addColorStop(0, '#ffd6fd');
+          grad.addColorStop(1, '#541b6f');
+          ctx.fillStyle = grad;
+          ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+          ctx.lineWidth = 2; ctx.strokeStyle = '#2a2f66'; ctx.stroke();
+          // label
+          ctx.fillStyle = '#ffffff';
+          ctx.font = '12px "Press Start 2P", monospace';
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          wrapText(p.label, p.x, p.y, p.r*1.6, 14);
+        }
+      }
+
+      // ======= Effects =======
+      let particles = []; // {x,y,vx,vy,life,color}
+
+      function spawnConfetti(x,y){
+        for(let i=0;i<60;i++){
+          const a = Math.random()*Math.PI*2; const sp = 160 + Math.random()*240;
+          particles.push({x,y,vx:Math.cos(a)*sp, vy:Math.sin(a)*sp, life: 0.9+Math.random()*0.6, color: randBright()});
+        }
+      }
+      function spawnBomb(x,y){
+        for(let i=0;i<46;i++){
+          const a = Math.random()*Math.PI*2; const sp = 120 + Math.random()*200;
+          particles.push({x,y,vx:Math.cos(a)*sp, vy:Math.sin(a)*sp, life: 0.6+Math.random()*0.5, color: '#ff7b7b'});
+        }
+      }
+      function drawParticles(dt){
+        ctx.save();
+        for(const p of particles){
+          p.x += p.vx*dt; p.y += p.vy*dt; p.vy += 180*dt; p.life -= dt;
+          ctx.globalAlpha = Math.max(0, p.life);
+          ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, 3, 3);
+        }
+        particles = particles.filter(p=>p.life>0);
+        ctx.restore();
+      }
+
+      function randBright(){
+        const hues = [175, 195, 260, 290, 320, 340];
+        const h = hues[(Math.random()*hues.length)|0];
+        return `hsl(${h} 100% 65%)`;
+      }
+
+      // ======= Text helpers =======
+      function wrapText(text, x, y, maxWidth, lineHeight){
+        const words = text.split(' ');
+        let line = '', lines = [], test;
+        for(let w of words){
+          test = (line? line+' ' : '') + w;
+          if(ctx.measureText(test).width > maxWidth){
+            if(line) { lines.push(line); line = w; }
+            else { lines.push(w); line = ''; }
+          } else line = test;
+        }
+        if(line) lines.push(line);
+        const offset = (lines.length-1)*lineHeight*0.5;
+        for(let i=0;i<lines.length;i++) ctx.fillText(lines[i], x, y - offset + i*lineHeight);
+      }
+
+      function shuffle(arr){
+        for(let i=arr.length-1;i>0;i--){ const j = (Math.random()*(i+1))|0; [arr[i],arr[j]]=[arr[j],arr[i]]; }
+        return arr;
+      }
+
+      // ======= UI Elements =======
+      const hud = document.getElementById('hud');
+      const sentenceEl = document.getElementById('sentence');
+      const timerFill = document.getElementById('timerFill');
+      const scoreVal = document.getElementById('scoreVal');
+      const startScreen = document.getElementById('startScreen');
+      const endScreen = document.getElementById('endScreen');
+      const finalStats = document.getElementById('finalStats');
+      const finalTitle = document.getElementById('finalTitle');
+      const reviewScreen = document.getElementById('reviewScreen');
+      const reviewTableBody = document.querySelector('#reviewTable tbody');
+
+      document.getElementById('startBtn').addEventListener('click', beginCountdown);
+      document.getElementById('howBtn').addEventListener('click', ()=>{
+        alert('Aim with your mouse (or finger). Shoot the planet that matches the sentence\'s regional English. You have 10 seconds per round.');
+      });
+      document.getElementById('retryBtn').addEventListener('click', ()=>{ endScreen.style.display='none'; startGame(); });
+      document.getElementById('reviewBtn').addEventListener('click', ()=>{ endScreen.style.display='none'; showReview(); });
+      document.getElementById('closeReview').addEventListener('click', ()=>{ reviewScreen.style.display='none'; endScreen.style.display='flex'; });
+      document.getElementById('retryFromReview').addEventListener('click', ()=>{ reviewScreen.style.display='none'; startGame(); });
+
+      // Keyboard
+      window.addEventListener('keydown', (e)=>{
+        if(e.code==='Space'){ e.preventDefault(); if(gameState==='playing') fire(); else if(gameState==='idle') beginCountdown(); }
+        if(e.key==='r' || e.key==='R'){ if(gameState==='post') startGame(); }
+      });
+
+      // Mouse / Touch
+      window.addEventListener('mousemove', (e)=>{ aim.x = e.clientX; aim.y = e.clientY; });
+      window.addEventListener('touchmove', (e)=>{ if(e.touches[0]) { aim.x = e.touches[0].clientX; aim.y = e.touches[0].clientY; } }, {passive:true});
+      window.addEventListener('click', ()=>{ if(gameState==='playing') fire(); });
+      window.addEventListener('touchstart', ()=>{ if(gameState==='playing') fire(); }, {passive:true});
+
+      // ======= Game Flow =======
+      let gameState = 'idle'; // idle, countdown, playing, post
+      let perfNow = 0, last = performance.now();
+      let qIndex = 0; let score = 0; let currentQ = null; let deadline = 0; let accepting = false;
+      let history = []; // {sentence, correct, picked, why, correctBool}
+
+      function beginCountdown(){
+        startScreen.style.display='none';
+        const cd = document.getElementById('countdown');
+        const num = document.getElementById('countNum');
+        cd.style.display='flex';
+        gameState='countdown';
+        let n = 3;
+        num.textContent = n;
+        const t = setInterval(()=>{
+          n--; if(n>0){ num.textContent = n; } else { clearInterval(t); cd.style.display='none'; startGame(); }
+        }, 800);
+      }
+
+      function startGame(){
+        bullets = []; particles = []; history = [];
+        score = 0; scoreVal.textContent = '0';
+        qIndex = 0;
+        shuffle(QUESTIONS);
+        hud.style.display='flex';
+        gameState='playing';
+        nextQuestion();
+      }
+
+      function nextQuestion(){
+        if(qIndex >= QUESTIONS.length){ return endGame(); }
+        accepting = true;
+        currentQ = QUESTIONS[qIndex];
+        sentenceEl.textContent = currentQ.sentence;
+        spawnPlanets(currentQ.options);
+        deadline = performance.now() + 10000;
+      }
+
+      function endGame(){
+        gameState='post';
+        hud.style.display='none';
+        endScreen.style.display='flex';
+        finalTitle.textContent = score >= Math.ceil(QUESTIONS.length*0.8) ? 'Ace Pilot!' : (score>= Math.ceil(QUESTIONS.length*0.5) ? 'Solid Flight' : 'Back to the Hangar');
+        finalStats.textContent = `You scored ${score} / ${QUESTIONS.length}.`;
+      }
+
+      function chooseAnswer(label, hitX, hitY){
+        if(!accepting) return;
+        accepting = false;
+        const isCorrect = (label === currentQ.correct);
+        if(isCorrect){ score++; scoreVal.textContent = String(score); spawnConfetti(hitX, hitY); briefExplain(true); }
+        else { spawnBomb(hitX, hitY); briefExplain(false); }
+        history.push({ sentence: currentQ.sentence, correct: currentQ.correct, picked: label, why: currentQ.why, correctBool: isCorrect });
+        setTimeout(()=>{ qIndex++; nextQuestion(); }, 1100);
+      }
+
+      function briefExplain(correct){
+        const msg = document.createElement('div');
+        msg.textContent = correct ? `Correct! ${currentQ.why}` : `Missed. Answer: ${currentQ.correct}. ${currentQ.why}`;
+        msg.style.position='fixed'; msg.style.left='50%'; msg.style.top='14%'; msg.style.transform='translateX(-50%)';
+        msg.style.background='rgba(18,22,51,.95)'; msg.style.border='2px solid #2a2f66'; msg.style.padding='8px 12px'; msg.style.borderRadius='12px'; msg.style.boxShadow='0 10px 30px rgba(0,0,0,.5)';
+        msg.style.fontSize='14px'; msg.style.color = correct ? 'var(--good)' : 'var(--bad)';
+        msg.style.pointerEvents='none';
+        document.body.appendChild(msg);
+        setTimeout(()=>{ msg.remove(); }, 1000);
+      }
+
+      function showReview(){
+        reviewTableBody.innerHTML = '';
+        for(const row of history){
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${escapeHtml(row.sentence)}</td><td>${escapeHtml(row.correct)}</td><td class="${row.correctBool? 'good':'bad'}">${escapeHtml(row.picked || '-')}</td><td>${escapeHtml(row.why)}</td>`;
+          reviewTableBody.appendChild(tr);
+        }
+        reviewScreen.style.display='flex';
+      }
+
+      function escapeHtml(s){
+        return String(s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+      }
+
+      // ======= Main Loop =======
+      function tick(){
+        const now = performance.now();
+        const dt = Math.min(0.033, (now - last)/1000);
+        last = now; perfNow = now/1000;
+
+        // Clear
+        ctx.clearRect(0,0,W,H);
+        drawStars(dt);
+
+        if(gameState==='playing'){
+          // timer
+          const remain = Math.max(0, deadline - now);
+          const pct = remain / 10000;
+          timerFill.style.width = (pct*100).toFixed(1) + '%';
+          if(remain<=0 && accepting){ // time out
+            accepting = false;
+            spawnBomb(W/2, H*0.36);
+            history.push({ sentence: currentQ.sentence, correct: currentQ.correct, picked: null, why: currentQ.why, correctBool: false });
+            briefExplain(false);
+            setTimeout(()=>{ qIndex++; nextQuestion(); }, 1100);
+          }
+
+          // Ship positioning follows x only towards aim for a snappy feel
+          ship.x += (aim.x - ship.x) * Math.min(1, 10*dt);
+
+          drawPlanets(dt);
+          updateBullets(dt);
+
+          // bullet collisions
+          for(const b of bullets){
+            for(const p of planets){
+              const dx = b.x - p.x, dy = b.y - p.y; if(dx*dx + dy*dy <= p.r*p.r){
+                b.life = 0; // remove
+                chooseAnswer(p.label, p.x, p.y);
+                break;
+              }
+            }
+          }
+
+          drawShip();
+          drawCrosshair();
+        } else {
+          // idle / countdown / post — still render ship & crosshair for vibe
+          ship.x += (aim.x - ship.x) * Math.min(1, 10*dt);
+          drawShip();
+          drawCrosshair();
+        }
+
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+
+      // Init visible state
+      function init(){
+        hud.style.display='none';
+        startScreen.style.display='flex';
+      }
+      init();
+
+    })();
+  </script>
+</body>
+</html>
+
